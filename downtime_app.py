@@ -178,23 +178,29 @@ if df is not None and not df.empty:
             selected_types = []
         
         if "Цех" in df.columns:
-            selected_workshops = st.sidebar.multiselect("Оберіть цех(и)", sorted(df["Цех"].dropna().unique().tolist()), default=df["Цех"].dropna().unique().tolist())
+            all_workshops = sorted(df["Цех"].dropna().unique().tolist())
+            selected_workshops = st.sidebar.multiselect("Оберіть цех(и)", all_workshops, default=all_workshops)
         else:
             selected_workshops = []
-
+        
         if "Відповідальні служби" in df.columns:
-            temp_df_exploded = df.copy()
-            temp_df_exploded["Відповідальні служби"] = temp_df_exploded["Відповідальні служби"].fillna("")
-            temp_df_exploded["Відповідальні служби"] = temp_df_exploded["Відповідальні служби"].apply(
+            temp_df_services = df.copy()
+            temp_df_services["Відповідальні служби"] = temp_df_services["Відповідальні служби"].fillna("")
+            temp_df_services["Відповідальні служби"] = temp_df_services["Відповідальні служби"].apply(
                 lambda x: [s.strip() for s in str(x).split(',') if s.strip()] if pd.notna(x) else ["Не вказано"]
             )
-            temp_df_exploded = temp_df_exploded.explode("Відповідальні служби")
-            selected_responsible_services = st.sidebar.multiselect("Оберіть відповідальну(і) службу(и)", sorted(temp_df_exploded["Відповідальні служби"].dropna().unique().tolist()), default=temp_df_exploded["Відповідальні служби"].dropna().unique().tolist())
+            all_services = sorted(list(set([item for sublist in temp_df_services["Відповідальні служби"] for item in sublist])))
+            selected_responsible_services = st.sidebar.multiselect("Оберіть відповідальну(і) службу(и)", all_services, default=all_services)
         else:
             selected_responsible_services = []
 
+        # --- Динамічний фільтр обладнання на основі вибраних цехів ---
         if "Обладнання" in df.columns:
-            selected_equipment = st.sidebar.multiselect("Оберіть обладнання", sorted(df["Обладнання"].dropna().unique().tolist()), default=df["Обладнання"].dropna().unique().tolist())
+            if selected_workshops:
+                available_equipment = sorted(df[df["Цех"].isin(selected_workshops)]["Обладнання"].dropna().unique().tolist())
+            else:
+                available_equipment = sorted(df["Обладнання"].dropna().unique().tolist())
+            selected_equipment = st.sidebar.multiselect("Оберіть обладнання", available_equipment, default=available_equipment)
         else:
             selected_equipment = []
             
@@ -215,7 +221,7 @@ if df is not None and not df.empty:
         if filtered_df.empty:
             st.warning("⚠️ Після застосування вибраних фільтрів даних не знайдено.")
             st.stop()
-        
+
         # --- Створення унікального датафрейму для коректних розрахунків ---
         unique_tasks_df = filtered_df.drop_duplicates(subset=['Ідентифікатор']).copy()
 
@@ -362,12 +368,43 @@ if df is not None and not df.empty:
         col_total1, col_total2 = st.columns(2) 
         total_execution_time_minutes = unique_tasks_df["Час до виконання (хв)"].dropna().sum() if "Час до виконання (хв)" in unique_tasks_df.columns else 0.0
         col_total1.metric("Загальний час до виконання (хв)", f"{total_execution_time_minutes:.1f}" if pd.notna(total_execution_time_minutes) else "Немає даних")
+
+        # --- Динамічний розрахунок часу простою ---
         total_downtime_minutes = 0.0
         downtime_types = ["Простій", "Простій РЦ"]
-        if "Тип заявки" in unique_tasks_df.columns and "Час до виконання (хв)" in unique_tasks_df.columns:
-            downtime_df = unique_tasks_df[unique_tasks_df["Тип заявки"].isin(downtime_types)]
-            total_downtime_minutes = downtime_df["Час до виконання (хв)"].dropna().sum()
+        
+        if "Тип заявки" in filtered_df.columns and "Час до виконання (хв)" in filtered_df.columns:
+            # Створення унікального датафрейму для розрахунку простою
+            downtime_df = df.copy()
+            downtime_df = downtime_df[
+                downtime_df["Дата створення (для фільтра)"].between(start_date, end_date) &
+                downtime_df["Тип заявки"].isin(downtime_types)
+            ]
+            
+            # Фільтруємо по цехам
+            if selected_workshops:
+                downtime_df = downtime_df[downtime_df["Цех"].isin(selected_workshops)]
+            
+            # Фільтруємо по обладнанню
+            if selected_equipment:
+                downtime_df = downtime_df[downtime_df["Обладнання"].isin(selected_equipment)]
+            
+            # Фільтруємо по службах
+            if selected_responsible_services and "Відповідальні служби" in downtime_df.columns:
+                # Обробка та фільтрація
+                def has_selected_service(services_str):
+                    if pd.isna(services_str):
+                        return False
+                    services_list = [s.strip() for s in services_str.split(',') if s.strip()]
+                    return any(s in selected_responsible_services for s in services_list)
+
+                downtime_df = downtime_df[downtime_df["Відповідальні служби"].apply(has_selected_service)]
+            
+            # Сумуємо, уникаючи дублювання
+            total_downtime_minutes = downtime_df.drop_duplicates(subset=['Ідентифікатор'])["Час до виконання (хв)"].dropna().sum()
+
         col_total2.metric("Загальний час простою (хв)", f"{total_downtime_minutes:.1f}" if pd.notna(total_downtime_minutes) else "Немає даних")
+
         st.markdown("---")
 
         st.subheader("⚙️ Аналіз часу на машину")
