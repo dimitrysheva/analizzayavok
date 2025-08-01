@@ -6,10 +6,10 @@ from io import StringIO, BytesIO
 
 st.set_page_config(layout="wide", page_title="Аналіз заявок по обладнанню", page_icon="⚙️")
 
-st.title("⚙️ Аналіз заявок по обладнанню")
+st.title("⚙️ Аналіз заявок по обладнання")
 
 st.markdown("""
-    Завантажте ваш **CSV-файл** з даними про заявки.
+    Завантажте ваш **CSV-файл** або **Excel-файл** з даними про заявки.
     
     **Особливості:**
     * **Пошук**: Використовуйте поле пошуку, щоб швидко знайти заявки за ідентифікатором або описом робіт.
@@ -27,37 +27,43 @@ st.markdown("""
 # --- Вибір джерела даних (тільки завантаження файлу з комп'ютера) ---
 st.sidebar.header("Джерело даних")
 df = None
-uploaded_file = st.file_uploader("📂 Завантажте CSV-файл", type=["csv"])
+uploaded_file = st.file_uploader("📂 Завантажте CSV або Excel файл", type=["csv", "xlsx"])
 
 if uploaded_file:
     try:
         uploaded_file.seek(0)
-        try:
-            df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8')
-        except Exception:
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, sep=';', encoding='cp1251')
         
-        if df.empty or len(df.columns) <= 2:
-            uploaded_file.seek(0)
+        # Перевірка типу файлу за розширенням
+        if uploaded_file.name.endswith('.csv'):
             try:
-                df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8')
+                df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8')
             except Exception:
                 uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, sep=',', encoding='cp1251')
-        
-        if df.empty or len(df.columns) <= 2:
-            uploaded_file.seek(0)
-            try:
-                df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
-            except Exception:
+                df = pd.read_csv(uploaded_file, sep=';', encoding='cp1251')
+            
+            if df.empty or len(df.columns) <= 2:
                 uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, encoding='cp1251')
+                try:
+                    df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8')
+                except Exception:
+                    uploaded_file.seek(0)
+                    df = pd.read_csv(uploaded_file, sep=',', encoding='cp1251')
+            
+            if df.empty or len(df.columns) <= 2:
+                uploaded_file.seek(0)
+                try:
+                    df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+                except Exception:
+                    uploaded_file.seek(0)
+                    df = pd.read_csv(uploaded_file, encoding='cp1251')
 
+        elif uploaded_file.name.endswith('.xlsx'):
+            df = pd.read_excel(uploaded_file, engine='openpyxl')
+        
         st.success("✅ Файл успішно завантажено!")
     except Exception as e:
         st.error(f"❌ Виникла помилка під час завантаження файлу: {e}")
-        st.info("Будь ласка, перевірте, чи файл не пошкоджений та чи є у ньому дані.")
+        st.info("Будь ласка, перевірте, чи файл не пошкоджений та чи є у ньому дані. Також переконайтесь, що формат файлу коректний (CSV або XLSX).")
         df = None
 
 # --- Вся подальша логіка обробки даних тепер виконується тільки якщо df не порожній ---
@@ -333,4 +339,4 @@ if df is not None and not df.empty:
         st.info(f"Деталі помилки: {type(e).__name__}: {e}")
         st.info("Будь ласка, перевірте ваш файл. Можливо, деякі стовпці відсутні або дані мають неочікуваний формат.")
 elif df is None:
-    st.info("⬆️ Будь ласка, завантажте CSV-файл, щоб розпочати аналіз.")
+    st.info("⬆️ Будь ласка, завантажте CSV або Excel файл, щоб розпочати аналіз.")
