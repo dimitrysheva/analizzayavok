@@ -173,13 +173,13 @@ if df is not None and not df.empty:
         # --- Бокова панель для фільтрів ---
         st.sidebar.header("🔍 Фільтри даних")
         if "Тип заявки" in df.columns:
-            selected_types = st.sidebar.multiselect("Оберіть тип(и) заявки", sorted(df["Тип заявки"].dropna().unique().tolist()), default=df["Тип заявки"].dropna().unique().tolist())
+            selected_types = st.sidebar.multiselect("Оберіть тип(и) заявки", sorted(df["Тип заявки"].dropna().unique().tolist()))
         else:
             selected_types = []
         
         if "Цех" in df.columns:
             all_workshops = sorted(df["Цех"].dropna().unique().tolist())
-            selected_workshops = st.sidebar.multiselect("Оберіть цех(и)", all_workshops, default=all_workshops)
+            selected_workshops = st.sidebar.multiselect("Оберіть цех(и)", all_workshops)
         else:
             selected_workshops = []
         
@@ -190,7 +190,7 @@ if df is not None and not df.empty:
                 lambda x: [s.strip() for s in str(x).split(',') if s.strip()] if pd.notna(x) else ["Не вказано"]
             )
             all_services = sorted(list(set([item for sublist in temp_df_services["Відповідальні служби"] for item in sublist])))
-            selected_responsible_services = st.sidebar.multiselect("Оберіть відповідальну(і) службу(и)", all_services, default=all_services)
+            selected_responsible_services = st.sidebar.multiselect("Оберіть відповідальну(і) службу(и)", all_services)
         else:
             selected_responsible_services = []
 
@@ -200,7 +200,7 @@ if df is not None and not df.empty:
                 available_equipment = sorted(df[df["Цех"].isin(selected_workshops)]["Обладнання"].dropna().unique().tolist())
             else:
                 available_equipment = sorted(df["Обладнання"].dropna().unique().tolist())
-            selected_equipment = st.sidebar.multiselect("Оберіть обладнання", available_equipment, default=available_equipment)
+            selected_equipment = st.sidebar.multiselect("Оберіть обладнання", available_equipment)
         else:
             selected_equipment = []
             
@@ -210,13 +210,23 @@ if df is not None and not df.empty:
         start_date = st.sidebar.date_input("Початкова дата", value=min_date_available, min_value=min_date_available, max_value=max_date_available)
         end_date = st.sidebar.date_input("Кінцева дата", value=max_date_available, min_value=min_date_available, max_value=max_date_available)
 
-        # --- Застосування фільтрів ---
+        # --- Застосування фільтрів до основного датафрейму ---
         filtered_df = df.copy()
         if selected_types: filtered_df = filtered_df[filtered_df["Тип заявки"].isin(selected_types)]
         if selected_workshops: filtered_df = filtered_df[filtered_df["Цех"].isin(selected_workshops)]
         if selected_equipment: filtered_df = filtered_df[filtered_df["Обладнання"].isin(selected_equipment)]
         if filter_anomalies: filtered_df = filtered_df[filtered_df['Підозріле повторення'] == True]
         filtered_df = filtered_df[(filtered_df["Дата створення (для фільтра)"] >= start_date) & (filtered_df["Дата створення (для фільтра)"] <= end_date)]
+
+        # --- Фільтрація по службах до дублювання ---
+        if selected_responsible_services and "Відповідальні служби" in filtered_df.columns:
+            def has_selected_service(services_str):
+                if pd.isna(services_str):
+                    return False
+                services_list = [s.strip() for s in str(services_str).split(',') if s.strip()]
+                return any(s in selected_responsible_services for s in services_list)
+
+            filtered_df = filtered_df[filtered_df["Відповідальні служби"].apply(has_selected_service)]
 
         if filtered_df.empty:
             st.warning("⚠️ Після застосування вибраних фільтрів даних не знайдено.")
@@ -234,6 +244,7 @@ if df is not None and not df.empty:
             ]
             if unique_tasks_df.empty:
                 st.info("ℹ️ За вашим запитом нічого не знайдено.")
+            
             filtered_df = filtered_df[
                 filtered_df['Ідентифікатор'].astype(str).str.contains(search_query, case=False, na=False) |
                 filtered_df['Опис робіт'].astype(str).str.contains(search_query, case=False, na=False)
@@ -369,39 +380,16 @@ if df is not None and not df.empty:
         total_execution_time_minutes = unique_tasks_df["Час до виконання (хв)"].dropna().sum() if "Час до виконання (хв)" in unique_tasks_df.columns else 0.0
         col_total1.metric("Загальний час до виконання (хв)", f"{total_execution_time_minutes:.1f}" if pd.notna(total_execution_time_minutes) else "Немає даних")
 
-        # --- Динамічний розрахунок часу простою ---
         total_downtime_minutes = 0.0
         downtime_types = ["Простій", "Простій РЦ"]
         
-        if "Тип заявки" in filtered_df.columns and "Час до виконання (хв)" in filtered_df.columns:
-            # Створення унікального датафрейму для розрахунку простою
-            downtime_df = df.copy()
-            downtime_df = downtime_df[
-                downtime_df["Дата створення (для фільтра)"].between(start_date, end_date) &
-                downtime_df["Тип заявки"].isin(downtime_types)
-            ]
+        # Оновлена логіка: розраховуємо час простою, тільки якщо відповідні типи вибрані
+        if "Тип заявки" in unique_tasks_df.columns and "Час до виконання (хв)" in unique_tasks_df.columns:
+            downtime_types_in_selection = [dtype for dtype in downtime_types if dtype in selected_types]
             
-            # Фільтруємо по цехам
-            if selected_workshops:
-                downtime_df = downtime_df[downtime_df["Цех"].isin(selected_workshops)]
-            
-            # Фільтруємо по обладнанню
-            if selected_equipment:
-                downtime_df = downtime_df[downtime_df["Обладнання"].isin(selected_equipment)]
-            
-            # Фільтруємо по службах
-            if selected_responsible_services and "Відповідальні служби" in downtime_df.columns:
-                # Обробка та фільтрація
-                def has_selected_service(services_str):
-                    if pd.isna(services_str):
-                        return False
-                    services_list = [s.strip() for s in services_str.split(',') if s.strip()]
-                    return any(s in selected_responsible_services for s in services_list)
-
-                downtime_df = downtime_df[downtime_df["Відповідальні служби"].apply(has_selected_service)]
-            
-            # Сумуємо, уникаючи дублювання
-            total_downtime_minutes = downtime_df.drop_duplicates(subset=['Ідентифікатор'])["Час до виконання (хв)"].dropna().sum()
+            if downtime_types_in_selection:
+                downtime_df = unique_tasks_df[unique_tasks_df["Тип заявки"].isin(downtime_types_in_selection)]
+                total_downtime_minutes = downtime_df["Час до виконання (хв)"].dropna().sum()
 
         col_total2.metric("Загальний час простою (хв)", f"{total_downtime_minutes:.1f}" if pd.notna(total_downtime_minutes) else "Немає даних")
 
@@ -419,8 +407,24 @@ if df is not None and not df.empty:
             
             st.markdown("##### Загальний час до виконання по обладнанню")
             if not unique_tasks_df["Час до виконання (хв)"].dropna().empty:
-                agg_total_execution = unique_tasks_df.groupby("Обладнання")["Час до виконання (хв)"].sum().sort_values(ascending=False)
-                fig_total_execution = px.bar(agg_total_execution, x=agg_total_execution.index, y=agg_total_execution.values, labels={'x':'Обладнання', 'y':'Загальний час до виконання (хв)'}, title='Загальний час до виконання по обладнанню', height=400)
+                # Оновлена логіка: агрегуємо суму і кількість заявок
+                agg_total_execution = unique_tasks_df.groupby("Обладнання").agg(
+                    {'Час до виконання (хв)': 'sum', 'Ідентифікатор': 'count'}
+                ).sort_values(by='Час до виконання (хв)', ascending=False).reset_index()
+                agg_total_execution.rename(columns={'Ідентифікатор': 'Кількість заявок'}, inplace=True)
+
+                fig_total_execution = px.bar(
+                    agg_total_execution, 
+                    x="Обладнання", 
+                    y="Час до виконання (хв)", 
+                    labels={
+                        'Обладнання':'Обладнання', 
+                        'Час до виконання (хв)':'Загальний час до виконання (хв)'
+                    }, 
+                    title='Загальний час до виконання по обладнанню', 
+                    height=400,
+                    hover_data=['Кількість заявок'] # Додаємо кількість заявок у підказку
+                )
                 st.plotly_chart(fig_total_execution, use_container_width=True)
             else:
                 st.info("Немає даних для побудови графіка загального часу до виконання по обладнанню.")
