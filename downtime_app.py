@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from io import StringIO, BytesIO
+from streamlit_plotly_events import plotly_events
 
 st.set_page_config(layout="wide", page_title="Аналіз заявок по обладнанню", page_icon="⚙️")
 
@@ -205,20 +206,35 @@ if df is not None and not df.empty:
             selected_equipment = []
             
         filter_anomalies = st.sidebar.checkbox("Показати лише підозрілі повторення", value=False)
+        
         min_date_available = df["Дата створення (для фільтра)"].min()
         max_date_available = df["Дата створення (для фільтра)"].max()
-        start_date = st.sidebar.date_input("Початкова дата", value=min_date_available, min_value=min_date_available, max_value=max_date_available)
-        end_date = st.sidebar.date_input("Кінцева дата", value=max_date_available, min_value=min_date_available, max_value=max_date_available)
 
-        # --- Застосування фільтрів до основного датафрейму ---
+        # Ініціалізуємо стан сесії для фільтра дати, якщо він ще не існує
+        if "selected_calendar_date" not in st.session_state:
+            st.session_state.selected_calendar_date = (min_date_available, max_date_available)
+
+        # Використовуємо стан сесії для полів введення дати
+        start_date = st.sidebar.date_input("Початкова дата", value=st.session_state.selected_calendar_date[0], min_value=min_date_available, max_value=max_date_available)
+        end_date = st.sidebar.date_input("Кінцева дата", value=st.session_state.selected_calendar_date[1], min_value=min_date_available, max_value=max_date_available)
+        
+        # Кнопка для скидання фільтра дати
+        if st.sidebar.button("Скинути фільтр календаря"):
+            st.session_state.selected_calendar_date = (min_date_available, max_date_available)
+            # Перезавантажуємо сторінку, щоб застосувати зміни
+            st.rerun()
+
+        # Застосування фільтрів до основного датафрейму
         filtered_df = df.copy()
         if selected_types: filtered_df = filtered_df[filtered_df["Тип заявки"].isin(selected_types)]
         if selected_workshops: filtered_df = filtered_df[filtered_df["Цех"].isin(selected_workshops)]
         if selected_equipment: filtered_df = filtered_df[filtered_df["Обладнання"].isin(selected_equipment)]
         if filter_anomalies: filtered_df = filtered_df[filtered_df['Підозріле повторення'] == True]
+        
+        # Фільтрація за датою на основі вибраного у фільтрі
         filtered_df = filtered_df[(filtered_df["Дата створення (для фільтра)"] >= start_date) & (filtered_df["Дата створення (для фільтра)"] <= end_date)]
 
-        # --- Фільтрація по службах до дублювання ---
+        # Фільтрація по службах до дублювання
         if selected_responsible_services and "Відповідальні служби" in filtered_df.columns:
             def has_selected_service(services_str):
                 if pd.isna(services_str):
@@ -232,10 +248,10 @@ if df is not None and not df.empty:
             st.warning("⚠️ Після застосування вибраних фільтрів даних не знайдено.")
             st.stop()
 
-        # --- Створення унікального датафрейму для коректних розрахунків ---
+        # Створення унікального датафрейму для коректних розрахунків
         unique_tasks_df = filtered_df.drop_duplicates(subset=['Ідентифікатор']).copy()
 
-        # --- Пошук по заявках ---
+        # Пошук по заявках
         search_query = st.text_input("🔍 Пошук по заявках (введіть ідентифікатор або опис робіт)", "")
         if search_query:
             unique_tasks_df = unique_tasks_df[
@@ -250,7 +266,7 @@ if df is not None and not df.empty:
                 filtered_df['Опис робіт'].astype(str).str.contains(search_query, case=False, na=False)
             ]
 
-        # --- Обробка стовпця "Відповідальні служби" для відображення ---
+        # Обробка стовпця "Відповідальні служби" для відображення
         if "Відповідальні служби" in filtered_df.columns:
             filtered_df["Відповідальні служби"] = filtered_df["Відповідальні служби"].fillna("")
             filtered_df["Відповідальні служби"] = filtered_df["Відповідальні служби"].apply(
@@ -259,10 +275,10 @@ if df is not None and not df.empty:
             filtered_df = filtered_df.explode("Відповідальні служби")
             st.info("ℹ️ Стовпець 'Відповідальні служби' було оброблено для розділення.")
         
-        # --- Фільтрування після Explode ---
+        # Фільтрування після Explode
         if selected_responsible_services: filtered_df = filtered_df[filtered_df["Відповідальні служби"].isin(selected_responsible_services)]
 
-        # --- Створення нового стовпця з візуальними позначками ---
+        # Створення нового стовпця з візуальними позначками
         def get_visual_status(row):
             statuses = []
             if pd.notna(row['Час до виконання (хв)']) and row['Час до виконання (хв)'] > 15:
@@ -273,7 +289,7 @@ if df is not None and not df.empty:
 
         filtered_df['Статус'] = filtered_df.apply(get_visual_status, axis=1)
 
-        # --- Визначення стовпців для відображення та редагування ---
+        # Визначення стовпців для відображення та редагування
         columns_to_display = [
             "Статус", "Ідентифікатор", "Дата створення", "Час створення", "Тип заявки", "Цех", 
             "Лінія", "Обладнання", "Опис робіт", "Відповідальні служби", 
@@ -282,7 +298,7 @@ if df is not None and not df.empty:
         ]
         filtered_columns_to_display = [col for col in columns_to_display if col in filtered_df.columns]
 
-        # --- Єдина таблиця для редагування та перегляду ---
+        # Єдина таблиця для редагування та перегляду
         st.subheader("📋 Таблиця заявок")
         st.markdown("Ви можете додати свої коментарі в стовпець **'Реакція на заявки'**.")
         
@@ -301,7 +317,7 @@ if df is not None and not df.empty:
 
         st.markdown("---")
 
-        # --- Кнопки завантаження ---
+        # Кнопки завантаження
         col1, col2 = st.columns(2)
 
         @st.cache_data
@@ -340,9 +356,9 @@ if df is not None and not df.empty:
 
         st.markdown("---")
 
-        # --- Новий розділ: Календар заявок ---
+        # Новий розділ: Календар заявок
         st.subheader("🗓️ Календар заявок")
-        st.markdown("Цей графік показує кількість унікальних заявок за кожен день.")
+        st.markdown("Натисніть на стовпчик на графіку, щоб відфільтрувати таблицю за цим днем.")
         
         if "Дата створення (для фільтра)" in unique_tasks_df.columns:
             calendar_data = unique_tasks_df.groupby("Дата створення (для фільтра)").size().reset_index(name='Кількість заявок')
@@ -358,7 +374,18 @@ if df is not None and not df.empty:
                 )
                 fig_calendar.update_layout(xaxis_title="Дата створення", yaxis_title="Кількість заявок")
                 fig_calendar.update_traces(marker_line_width=1.5, marker_line_color='rgb(8,48,107)')
-                st.plotly_chart(fig_calendar, use_container_width=True)
+                
+                # Використання plotly_events для обробки кліків
+                selected_points = plotly_events(fig_calendar)
+
+                if selected_points:
+                    clicked_date_str = selected_points[0]['x']
+                    clicked_date = pd.to_datetime(clicked_date_str).date()
+                    
+                    # Оновлюємо стан сесії вибраною датою
+                    if st.session_state.selected_calendar_date != (clicked_date, clicked_date):
+                        st.session_state.selected_calendar_date = (clicked_date, clicked_date)
+                        st.experimental_rerun()
             else:
                 st.info("Немає даних для побудови календаря за обраний період.")
         else:
@@ -366,7 +393,7 @@ if df is not None and not df.empty:
         
         st.markdown("---")
 
-        # --- Статистика (використовуємо унікальний датафрейм) ---
+        # Статистика (використовуємо унікальний датафрейм)
         st.subheader("📊 Аналіз даних")
         
         col_avg1, col_avg2 = st.columns(2)
@@ -407,7 +434,6 @@ if df is not None and not df.empty:
             
             st.markdown("##### Загальний час до виконання по обладнанню")
             if not unique_tasks_df["Час до виконання (хв)"].dropna().empty:
-                # Оновлена логіка: агрегуємо суму і кількість заявок
                 agg_total_execution = unique_tasks_df.groupby("Обладнання").agg(
                     {'Час до виконання (хв)': 'sum', 'Ідентифікатор': 'count'}
                 ).sort_values(by='Час до виконання (хв)', ascending=False).reset_index()
@@ -423,7 +449,7 @@ if df is not None and not df.empty:
                     }, 
                     title='Загальний час до виконання по обладнанню', 
                     height=400,
-                    hover_data=['Кількість заявок'] # Додаємо кількість заявок у підказку
+                    hover_data=['Кількість заявок']
                 )
                 st.plotly_chart(fig_total_execution, use_container_width=True)
             else:
