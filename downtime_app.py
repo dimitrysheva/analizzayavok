@@ -90,36 +90,25 @@ if df is not None and not df.empty:
                 df[col] = default_val
                 st.info(f"ℹ️ Стовпець '{col}' відсутній у файлі і був доданий.")
         
-        # --- Спрощена і надійна обробка дат та часу ---
+        # --- Нова, надійна обробка дат та часу ---
         st.info("⚙️ Обробка стовпців з датами та часом...")
         
-        # Функція для перетворення даних в datetime
-        def convert_to_datetime(date_col, time_col):
-            # Перетворення колонки дати в datetime
+        def convert_to_datetime_safe(date_col, time_col):
+            # Перетворюємо дату в datetime, ігноруючи помилки
             dates = pd.to_datetime(date_col, errors='coerce', dayfirst=True)
             
-            # Обробка колонки часу
-            times = None
-            if pd.api.types.is_numeric_dtype(time_col):
-                # Excel може зберігати час як дріб (0.5 = 12:00)
-                times = pd.to_timedelta(time_col, unit='D', errors='coerce')
-            elif pd.api.types.is_datetime64_any_dtype(time_col):
-                # Excel може читати час як повний datetime з дефолтною датою
-                times = pd.to_timedelta(time_col.dt.time.astype(str))
-            else:
-                # Обробка часу як рядка, додаючи ":00" якщо секунди відсутні
-                # Це робить pd.to_timedelta більш гнучким
-                times = pd.to_timedelta(time_col.astype(str).str.pad(width=8, side='right', fillchar=':0'), errors='coerce')
-                
+            # Перетворюємо час в timedelta, використовуючи 'D' для правильного розпізнавання числових значень з Excel
+            times = pd.to_timedelta(time_col, unit='D', errors='coerce')
+            
             # Об'єднуємо дату і час
             combined_datetime = dates + times
             
             return combined_datetime
         
-        # Застосовуємо функцію до всіх необхідних стовпців
-        df['Час створення (datetime)'] = convert_to_datetime(df['Дата створення'], df['Час створення'])
-        df['Час виконання (datetime)'] = convert_to_datetime(df['Дата виконання'], df['Час виконання']) if 'Дата виконання' in df.columns and 'Час виконання' in df.columns else pd.NaT
-        df['Час закриття (datetime)'] = convert_to_datetime(df['Дата закриття'], df['Час закриття']) if 'Дата закриття' in df.columns and 'Час закриття' in df.columns else pd.NaT
+        # Застосовуємо нову функцію до всіх необхідних стовпців
+        df['Час створення (datetime)'] = convert_to_datetime_safe(df['Дата створення'], df['Час створення'])
+        df['Час виконання (datetime)'] = convert_to_datetime_safe(df['Дата виконання'], df['Час виконання']) if 'Дата виконання' in df.columns and 'Час виконання' in df.columns else pd.NaT
+        df['Час закриття (datetime)'] = convert_to_datetime_safe(df['Дата закриття'], df['Час закриття']) if 'Дата закриття' in df.columns and 'Час закриття' in df.columns else pd.NaT
 
         # Видалення рядків з некоректними датами створення
         initial_rows = len(df)
