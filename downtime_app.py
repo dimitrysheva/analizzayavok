@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 from io import StringIO, BytesIO
 
-st.set_page_config(layout="wide", page_title="Аналіз заявок по обладнанню", page_icon="⚙️")
+st.set_page_config(layout="wide", page_title="Аналіз заявок по обладнання", page_icon="⚙️")
 
 st.title("⚙️ Аналіз заявок по обладнання")
 
@@ -98,8 +98,8 @@ if df is not None and not df.empty:
             # Перетворення колонки дати в datetime
             dates = pd.to_datetime(date_col, errors='coerce', dayfirst=True)
             
-            times = pd.Series(pd.NaT, index=date_col.index, dtype='timedelta64[ns]')
-
+            # Обробка колонки часу
+            times = None
             if pd.api.types.is_numeric_dtype(time_col):
                 # Excel може зберігати час як дріб (0.5 = 12:00)
                 times = pd.to_timedelta(time_col, unit='D', errors='coerce')
@@ -107,12 +107,10 @@ if df is not None and not df.empty:
                 # Excel може читати час як повний datetime з дефолтною датою
                 times = pd.to_timedelta(time_col.dt.time.astype(str))
             else:
-                # Обробка часу як рядка
-                try:
-                    times = pd.to_timedelta(time_col.astype(str) + ':00')
-                except ValueError:
-                    times = pd.to_timedelta(time_col, errors='coerce')
-
+                # Обробка часу як рядка, додаючи ":00" якщо секунди відсутні
+                # Це робить pd.to_timedelta більш гнучким
+                times = pd.to_timedelta(time_col.astype(str).str.pad(width=8, side='right', fillchar=':0'), errors='coerce')
+                
             # Об'єднуємо дату і час
             combined_datetime = dates + times
             
