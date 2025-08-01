@@ -95,16 +95,24 @@ if df is not None and not df.empty:
         
         # Функція для перетворення даних в datetime
         def convert_to_datetime(date_col, time_col):
-            # Спочатку перетворюємо дату та час окремо, щоб уникнути помилок форматування
+            # Перетворення колонки дати в datetime
             dates = pd.to_datetime(date_col, errors='coerce', dayfirst=True)
-            times = pd.to_timedelta(time_col, unit='s', errors='coerce')
-
-            # Якщо час є в форматі dd.mm.yyyy, to_timedelta поверне NaT.
-            # Нам потрібно це обробити, щоб перетворити в timedelta.
-            # Excel може зберігати час як дріб, наприклад 0.5 = 12:00.
-            if times.isnull().all() and pd.api.types.is_numeric_dtype(time_col):
-                times = pd.to_timedelta(time_col, unit='D')
             
+            times = pd.Series(pd.NaT, index=date_col.index, dtype='timedelta64[ns]')
+
+            if pd.api.types.is_numeric_dtype(time_col):
+                # Excel може зберігати час як дріб (0.5 = 12:00)
+                times = pd.to_timedelta(time_col, unit='D', errors='coerce')
+            elif pd.api.types.is_datetime64_any_dtype(time_col):
+                # Excel може читати час як повний datetime з дефолтною датою
+                times = pd.to_timedelta(time_col.dt.time.astype(str))
+            else:
+                # Обробка часу як рядка
+                try:
+                    times = pd.to_timedelta(time_col.astype(str) + ':00')
+                except ValueError:
+                    times = pd.to_timedelta(time_col, errors='coerce')
+
             # Об'єднуємо дату і час
             combined_datetime = dates + times
             
