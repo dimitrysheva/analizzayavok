@@ -14,7 +14,9 @@ st.markdown("""
     **Особливості:**
     * **Пошук**: Використовуйте поле пошуку, щоб швидко знайти заявки за ідентифікатором або описом робіт.
     * **Єдина таблиця**: Ви бачите всі візуальні позначки (проблемний час, аномалії) в одній таблиці, де також можете додавати коментарі.
-    * **Завантаження змін**: Після редагування ви можете завантажити оновлені дані у новому CSV-файлі.
+    * **Завантаження змін**: Тепер є дві кнопки для завантаження:
+        1. **Оновлений CSV**: Завантажує повну таблицю з усіма вашими змінами.
+        2. **Звіт по коментарях**: Завантажує файл лише з тими заявками, до яких ви додали коментарі.
     
     **Очікувані стовпці**:
     * "Дата створення" та "Час створення" (обов'язкові)
@@ -243,20 +245,42 @@ if df is not None and not df.empty:
             disabled=[col for col in filtered_columns_to_display if col not in ["Реакція на заявки"]]
         )
 
-        # --- Кнопка завантаження ---
+        st.markdown("---")
+
+        # --- Кнопки завантаження ---
+        col1, col2 = st.columns(2)
+
         @st.cache_data
         def convert_df_to_csv(df_to_convert):
             df_to_convert = df_to_convert.drop(columns=['Статус'], errors='ignore')
+            
+            if 'Реакція на заявки' not in df_to_convert.columns:
+                df_to_convert['Реакція на заявки'] = ''
+
             return df_to_convert.to_csv(index=False, sep=';', encoding='utf-8-sig')
 
-        st.download_button(
-            label="⬇️ Завантажити оновлений CSV",
-            data=convert_df_to_csv(editable_df),
-            file_name=f'оновлені_заявки_{pd.Timestamp.now().strftime("%Y-%m-%d")}.csv',
-            mime='text/csv',
-            help='Завантажити відфільтровану та відредаговану таблицю у форматі CSV'
-        )
-        
+        with col1:
+            st.download_button(
+                label="⬇️ Завантажити оновлений CSV",
+                data=convert_df_to_csv(editable_df),
+                file_name=f'оновлені_заявки_{pd.Timestamp.now().strftime("%Y-%m-%d")}.csv',
+                mime='text/csv',
+                help='Завантажити відфільтровану та відредаговану таблицю у форматі CSV'
+            )
+
+        with col2:
+            commented_df = editable_df[editable_df['Реакція на заявки'].str.strip() != '']
+            if not commented_df.empty:
+                st.download_button(
+                    label="⬇️ Завантажити звіт по коментарях",
+                    data=convert_df_to_csv(commented_df),
+                    file_name=f'звіт_по_коментарях_{pd.Timestamp.now().strftime("%Y-%m-%d")}.csv',
+                    mime='text/csv',
+                    help='Завантажити тільки ті заявки, до яких ви додали коментарі'
+                )
+            else:
+                st.info("Щоб завантажити звіт, додайте коментарі хоча б до однієї заявки.")
+
         st.markdown("---")
 
         # --- Статистика (використовуємо відредагований датафрейм) ---
@@ -290,6 +314,7 @@ if df is not None and not df.empty:
                 st.plotly_chart(fig_avg_closure, use_container_width=True)
             else:
                 st.info("Немає даних для побудови графіка середнього часу до закриття по обладнанню.")
+            
             st.markdown("##### Загальний час до виконання по обладнанню")
             if not editable_df["Час до виконання (хв)"].dropna().empty:
                 agg_total_execution = unique_tasks_df.groupby("Обладнання")["Час до виконання (хв)"].sum().sort_values(ascending=False)
@@ -297,16 +322,6 @@ if df is not None and not df.empty:
                 st.plotly_chart(fig_total_execution, use_container_width=True)
             else:
                 st.info("Немає даних для побудови графіка загального часу до виконання по обладнанню.")
-            st.markdown("##### Загальний час простою по обладнанню")
-            if "Тип заявки" in editable_df.columns and "Час до виконання (хв)" in editable_df.columns:
-                downtime_types = ["Простій", "Простій РЦ"]
-                downtime_per_machine_df = unique_tasks_df[unique_tasks_df["Тип заявки"].isin(downtime_types)]
-                if not downtime_per_machine_df.empty:
-                    agg_total_downtime = downtime_per_machine_df.groupby("Обладнання")["Час до виконання (хв)"].sum().sort_values(ascending=False)
-                    fig_total_downtime = px.bar(agg_total_downtime, x=agg_total_downtime.index, y=agg_total_downtime.values, labels={'x':'Обладнання', 'y':'Загальний час простою (хв)'}, title='Загальний час простою по обладнанню', height=400)
-                    st.plotly_chart(fig_total_downtime, use_container_width=True)
-                else:
-                    st.info(f"Немає даних для побудови графіка загального часу простою по обладнанню (тип(и) заявки: {', '.join(downtime_types)}).")
         else:
             st.info("Немає достатньо даних (або стовпця 'Обладнання') для аналізу часу на машину.")
         st.success("✅ Аналіз успішно завершено!")
