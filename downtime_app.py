@@ -257,16 +257,8 @@ if df is not None and not df.empty:
             if 'Реакція на заявки' not in df_to_convert.columns:
                 df_to_convert['Реакція на заявки'] = ''
             
-            # Створюємо CSV-файл у пам'яті
-            csv_string_io = StringIO()
-            
-            # Додаємо спеціальний рядок для Excel
-            csv_string_io.write("sep=;\n")
-            
-            # Записуємо DataFrame у CSV
-            df_to_convert.to_csv(csv_string_io, index=False, sep=';', encoding='utf-8-sig')
-
-            return csv_string_io.getvalue()
+            # Тепер використовуємо кому як роздільник і кодування utf-8-sig
+            return df_to_convert.to_csv(index=False, sep=',', encoding='utf-8-sig')
 
         with col1:
             st.download_button(
