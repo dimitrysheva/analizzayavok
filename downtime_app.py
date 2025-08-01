@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from io import StringIO, BytesIO
-from streamlit_plotly_events import plotly_events
+from streamlit_plotly_events import plotly_events # Додано для інтерактивного календаря
 
 st.set_page_config(layout="wide", page_title="Аналіз заявок по обладнанню", page_icon="⚙️")
 
@@ -211,7 +211,7 @@ if df is not None and not df.empty:
         max_date_available = df["Дата створення (для фільтра)"].max()
 
         # Ініціалізуємо стан сесії для фільтра дати, якщо він ще не існує
-        if "selected_calendar_date" not in st.session_state:
+        if "selected_calendar_date" not in st.session_state or st.session_state.selected_calendar_date is None:
             st.session_state.selected_calendar_date = (min_date_available, max_date_available)
 
         # Використовуємо стан сесії для полів введення дати
@@ -221,8 +221,7 @@ if df is not None and not df.empty:
         # Кнопка для скидання фільтра дати
         if st.sidebar.button("Скинути фільтр календаря"):
             st.session_state.selected_calendar_date = (min_date_available, max_date_available)
-            # Перезавантажуємо сторінку, щоб застосувати зміни
-            st.rerun()
+            st.experimental_rerun()
 
         # Застосування фільтрів до основного датафрейму
         filtered_df = df.copy()
@@ -356,7 +355,7 @@ if df is not None and not df.empty:
 
         st.markdown("---")
 
-        # Новий розділ: Календар заявок
+        # --- Новий розділ: Календар заявок ---
         st.subheader("🗓️ Календар заявок")
         st.markdown("Натисніть на стовпчик на графіку, щоб відфільтрувати таблицю за цим днем.")
         
@@ -393,7 +392,7 @@ if df is not None and not df.empty:
         
         st.markdown("---")
 
-        # Статистика (використовуємо унікальний датафрейм)
+        # --- Статистика (використовуємо унікальний датафрейм) ---
         st.subheader("📊 Аналіз даних")
         
         col_avg1, col_avg2 = st.columns(2)
@@ -405,7 +404,14 @@ if df is not None and not df.empty:
         st.markdown("---")
         col_total1, col_total2 = st.columns(2) 
         total_execution_time_minutes = unique_tasks_df["Час до виконання (хв)"].dropna().sum() if "Час до виконання (хв)" in unique_tasks_df.columns else 0.0
-        col_total1.metric("Загальний час до виконання (хв)", f"{total_execution_time_minutes:.1f}" if pd.notna(total_execution_time_minutes) else "Немає даних")
+
+        # Динамічна назва показника, щоб уникнути плутанини
+        if selected_types:
+            execution_metric_title = f"Загальний час до виконання ({', '.join(selected_types)})"
+        else:
+            execution_metric_title = "Загальний час до виконання (всіх)"
+        
+        col_total1.metric(execution_metric_title, f"{total_execution_time_minutes:.1f}" if pd.notna(total_execution_time_minutes) else "Немає даних")
 
         total_downtime_minutes = 0.0
         downtime_types = ["Простій", "Простій РЦ"]
