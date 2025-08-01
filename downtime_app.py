@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-from io import StringIO
+from io import StringIO, BytesIO
 
 st.set_page_config(layout="wide", page_title="Аналіз заявок по обладнанню", page_icon="⚙️")
 
@@ -15,7 +15,7 @@ st.markdown("""
     * **Пошук**: Використовуйте поле пошуку, щоб швидко знайти заявки за ідентифікатором або описом робіт.
     * **Єдина таблиця**: Ви бачите всі візуальні позначки (проблемний час, аномалії) в одній таблиці, де також можете додавати коментарі.
     * **Завантаження змін**: Тепер є дві кнопки для завантаження:
-        1. **Оновлений CSV**: Завантажує повну таблицю з усіма вашими змінами.
+        1. **Оновлений Excel**: Завантажує повну таблицю з усіма вашими змінами.
         2. **Звіт по коментарях**: Завантажує файл лише з тими заявками, до яких ви додали коментарі.
     
     **Очікувані стовпці**:
@@ -251,22 +251,24 @@ if df is not None and not df.empty:
         col1, col2 = st.columns(2)
 
         @st.cache_data
-        def convert_df_to_csv(df_to_convert):
+        def convert_df_to_excel(df_to_convert):
             df_to_convert = df_to_convert.drop(columns=['Статус'], errors='ignore')
             
             if 'Реакція на заявки' not in df_to_convert.columns:
                 df_to_convert['Реакція на заявки'] = ''
             
-            # Тепер використовуємо кому як роздільник і кодування utf-8-sig
-            return df_to_convert.to_csv(index=False, sep=',', encoding='utf-8-sig')
+            output = BytesIO()
+            df_to_convert.to_excel(output, index=False, engine='openpyxl')
+            processed_data = output.getvalue()
+            return processed_data
 
         with col1:
             st.download_button(
-                label="⬇️ Завантажити оновлений CSV",
-                data=convert_df_to_csv(editable_df),
-                file_name=f'оновлені_заявки_{pd.Timestamp.now().strftime("%Y-%m-%d")}.csv',
-                mime='text/csv',
-                help='Завантажити відфільтровану та відредаговану таблицю у форматі CSV'
+                label="⬇️ Завантажити оновлений Excel",
+                data=convert_df_to_excel(editable_df),
+                file_name=f'оновлені_заявки_{pd.Timestamp.now().strftime("%Y-%m-%d")}.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                help='Завантажити відфільтровану та відредаговану таблицю у форматі Excel'
             )
 
         with col2:
@@ -274,9 +276,9 @@ if df is not None and not df.empty:
             if not commented_df.empty:
                 st.download_button(
                     label="⬇️ Завантажити звіт по коментарях",
-                    data=convert_df_to_csv(commented_df),
-                    file_name=f'звіт_по_коментарях_{pd.Timestamp.now().strftime("%Y-%m-%d")}.csv',
-                    mime='text/csv',
+                    data=convert_df_to_excel(commented_df),
+                    file_name=f'звіт_по_коментарях_{pd.Timestamp.now().strftime("%Y-%m-%d")}.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     help='Завантажити тільки ті заявки, до яких ви додали коментарі'
                 )
             else:
@@ -311,24 +313,4 @@ if df is not None and not df.empty:
             st.markdown("##### Середній час до закриття по обладнанню")
             if not editable_df["Час до закриття (хв)"].dropna().empty:
                 agg_avg_closure = unique_tasks_df.groupby("Обладнання")["Час до закриття (хв)"].mean().sort_values(ascending=False)
-                fig_avg_closure = px.bar(agg_avg_closure, x=agg_avg_closure.index, y=agg_avg_closure.values, labels={'x':'Обладнання', 'y':'Середній час до закриття (хв)'}, title='Середній час до закриття по обладнанню', height=400)
-                st.plotly_chart(fig_avg_closure, use_container_width=True)
-            else:
-                st.info("Немає даних для побудови графіка середнього часу до закриття по обладнанню.")
-            
-            st.markdown("##### Загальний час до виконання по обладнанню")
-            if not editable_df["Час до виконання (хв)"].dropna().empty:
-                agg_total_execution = unique_tasks_df.groupby("Обладнання")["Час до виконання (хв)"].sum().sort_values(ascending=False)
-                fig_total_execution = px.bar(agg_total_execution, x=agg_total_execution.index, y=agg_total_execution.values, labels={'x':'Обладнання', 'y':'Загальний час до виконання (хв)'}, title='Загальний час до виконання по обладнанню', height=400)
-                st.plotly_chart(fig_total_execution, use_container_width=True)
-            else:
-                st.info("Немає даних для побудови графіка загального часу до виконання по обладнанню.")
-        else:
-            st.info("Немає достатньо даних (або стовпця 'Обладнання') для аналізу часу на машину.")
-        st.success("✅ Аналіз успішно завершено!")
-    except Exception as e:
-        st.error(f"❌ Виникла помилка під час обробки файлу: {e}")
-        st.info(f"Деталі помилки: {type(e).__name__}: {e}")
-        st.info("Будь ласка, перевірте ваш файл. Можливо, деякі стовпці відсутні або дані мають неочікуваний формат.")
-elif df is None:
-    st.info("⬆️ Будь ласка, завантажте CSV-файл, щоб розпочати аналіз.")
+                fig_avg_closure = px.bar(agg_avg_closure, x=agg_avg_closure
