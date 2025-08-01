@@ -93,22 +93,39 @@ if df is not None and not df.empty:
         # --- Нова, надійна обробка дат та часу ---
         st.info("⚙️ Обробка стовпців з датами та часом...")
         
-        def convert_to_datetime_safe(date_col, time_col):
-            # Перетворюємо дату в datetime, ігноруючи помилки
+        def convert_to_datetime_robust(date_col, time_col):
+            # Перетворюємо дату в datetime
             dates = pd.to_datetime(date_col, errors='coerce', dayfirst=True)
             
-            # Перетворюємо час в timedelta, використовуючи 'D' для правильного розпізнавання числових значень з Excel
-            times = pd.to_timedelta(time_col, unit='D', errors='coerce')
+            times = pd.Series(pd.NaT, index=df.index, dtype='timedelta64[ns]')
+
+            # Спроба 1: Обробка числових значень (Excel)
+            is_numeric = pd.to_numeric(time_col, errors='coerce').notna()
+            if is_numeric.any():
+                numeric_times = pd.to_timedelta(time_col[is_numeric], unit='D', errors='coerce')
+                times.loc[is_numeric] = numeric_times
             
+            # Спроба 2: Обробка повних datetime-об'єктів (спричиняло попередню помилку)
+            is_datetime = pd.api.types.is_datetime64_any_dtype(time_col)
+            if is_datetime:
+                datetime_times = pd.to_timedelta(time_col.dt.time.astype(str), errors='coerce')
+                times.loc[~is_numeric] = datetime_times.loc[~is_numeric]
+                
+            # Спроба 3: Обробка текстових значень (CSV)
+            is_string_like = pd.api.types.is_string_dtype(time_col)
+            if is_string_like:
+                string_times = pd.to_timedelta(time_col, errors='coerce')
+                times.loc[times.isnull()] = string_times.loc[times.isnull()]
+
             # Об'єднуємо дату і час
             combined_datetime = dates + times
             
             return combined_datetime
         
         # Застосовуємо нову функцію до всіх необхідних стовпців
-        df['Час створення (datetime)'] = convert_to_datetime_safe(df['Дата створення'], df['Час створення'])
-        df['Час виконання (datetime)'] = convert_to_datetime_safe(df['Дата виконання'], df['Час виконання']) if 'Дата виконання' in df.columns and 'Час виконання' in df.columns else pd.NaT
-        df['Час закриття (datetime)'] = convert_to_datetime_safe(df['Дата закриття'], df['Час закриття']) if 'Дата закриття' in df.columns and 'Час закриття' in df.columns else pd.NaT
+        df['Час створення (datetime)'] = convert_to_datetime_robust(df['Дата створення'], df['Час створення'])
+        df['Час виконання (datetime)'] = convert_to_datetime_robust(df['Дата виконання'], df['Час виконання']) if 'Дата виконання' in df.columns and 'Час виконання' in df.columns else pd.NaT
+        df['Час закриття (datetime)'] = convert_to_datetime_robust(df['Дата закриття'], df['Час закриття']) if 'Дата закриття' in df.columns and 'Час закриття' in df.columns else pd.NaT
 
         # Видалення рядків з некоректними датами створення
         initial_rows = len(df)
