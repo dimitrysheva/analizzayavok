@@ -32,28 +32,31 @@ uploaded_file = st.file_uploader("📂 Завантажте CSV-файл", type=
 if uploaded_file:
     try:
         uploaded_file.seek(0)
-        try:
-            df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8')
-        except Exception:
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, sep=';', encoding='cp1251')
         
-        if df.empty or len(df.columns) <= 2:
-            uploaded_file.seek(0)
+        # Перевірка типу файлу за розширенням
+        if uploaded_file.name.endswith('.csv'):
             try:
-                df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8')
+                df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8')
             except Exception:
                 uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, sep=',', encoding='cp1251')
-        
-        if df.empty or len(df.columns) <= 2:
-            uploaded_file.seek(0)
-            try:
-                df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
-            except Exception:
+                df = pd.read_csv(uploaded_file, sep=';', encoding='cp1251')
+            
+            if df.empty or len(df.columns) <= 2:
                 uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, encoding='cp1251')
-
+                try:
+                    df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8')
+                except Exception:
+                    uploaded_file.seek(0)
+                    df = pd.read_csv(uploaded_file, sep=',', encoding='cp1251')
+            
+            if df.empty or len(df.columns) <= 2:
+                uploaded_file.seek(0)
+                try:
+                    df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+                except Exception:
+                    uploaded_file.seek(0)
+                    df = pd.read_csv(uploaded_file, encoding='cp1251')
+        
         st.success("✅ Файл успішно завантажено!")
     except Exception as e:
         st.error(f"❌ Виникла помилка під час завантаження файлу: {e}")
@@ -167,19 +170,34 @@ if df is not None and not df.empty:
         df["Час до виконання (хв)"] = (df["Час виконання (datetime)"] - df["Час створення (datetime)"]).dt.total_seconds() / 60
         df["Час до закриття (хв)"] = (df["Час закриття (datetime)"] - df["Час створення (datetime)"]).dt.total_seconds() / 60
 
-        if "Відповідальні служби" in df.columns:
-            df["Відповідальні служби"] = df["Відповідальні служби"].fillna("")
-            df["Відповідальні служби"] = df["Відповідальні служби"].apply(
-                lambda x: [s.strip() for s in str(x).split(',') if s.strip()] if pd.notna(x) else ["Не вказано"]
-            )
-            df = df.explode("Відповідальні служби")
-            st.info("ℹ️ Стовпець 'Відповідальні служби' було оброблено для розділення.")
-
         # --- Бокова панель для фільтрів ---
         st.sidebar.header("🔍 Фільтри даних")
-        selected_types = st.sidebar.multiselect("Оберіть тип(и) заявки", sorted(df["Тип заявки"].dropna().unique().tolist()), default=df["Тип заявки"].dropna().unique().tolist()) if "Тип заявки" in df.columns else []
-        selected_workshops = st.sidebar.multiselect("Оберіть цех(и)", sorted(df["Цех"].dropna().unique().tolist()), default=df["Цех"].dropna().unique().tolist()) if "Цех" in df.columns else []
-        selected_responsible_services = st.sidebar.multiselect("Оберіть відповідальну(і) службу(и)", sorted(df["Відповідальні служби"].dropna().unique().tolist()), default=df["Відповідальні служби"].dropna().unique().tolist()) if "Відповідальні служби" in df.columns else []
+        if "Тип заявки" in df.columns:
+            selected_types = st.sidebar.multiselect("Оберіть тип(и) заявки", sorted(df["Тип заявки"].dropna().unique().tolist()), default=df["Тип заявки"].dropna().unique().tolist())
+        else:
+            selected_types = []
+        
+        if "Цех" in df.columns:
+            selected_workshops = st.sidebar.multiselect("Оберіть цех(и)", sorted(df["Цех"].dropna().unique().tolist()), default=df["Цех"].dropna().unique().tolist())
+        else:
+            selected_workshops = []
+
+        if "Відповідальні служби" in df.columns:
+            temp_df_exploded = df.copy()
+            temp_df_exploded["Відповідальні служби"] = temp_df_exploded["Відповідальні служби"].fillna("")
+            temp_df_exploded["Відповідальні служби"] = temp_df_exploded["Відповідальні служби"].apply(
+                lambda x: [s.strip() for s in str(x).split(',') if s.strip()] if pd.notna(x) else ["Не вказано"]
+            )
+            temp_df_exploded = temp_df_exploded.explode("Відповідальні служби")
+            selected_responsible_services = st.sidebar.multiselect("Оберіть відповідальну(і) службу(и)", sorted(temp_df_exploded["Відповідальні служби"].dropna().unique().tolist()), default=temp_df_exploded["Відповідальні служби"].dropna().unique().tolist())
+        else:
+            selected_responsible_services = []
+
+        if "Обладнання" in df.columns:
+            selected_equipment = st.sidebar.multiselect("Оберіть обладнання", sorted(df["Обладнання"].dropna().unique().tolist()), default=df["Обладнання"].dropna().unique().tolist())
+        else:
+            selected_equipment = []
+            
         filter_anomalies = st.sidebar.checkbox("Показати лише підозрілі повторення", value=False)
         min_date_available = df["Дата створення (для фільтра)"].min()
         max_date_available = df["Дата створення (для фільтра)"].max()
@@ -190,7 +208,7 @@ if df is not None and not df.empty:
         filtered_df = df.copy()
         if selected_types: filtered_df = filtered_df[filtered_df["Тип заявки"].isin(selected_types)]
         if selected_workshops: filtered_df = filtered_df[filtered_df["Цех"].isin(selected_workshops)]
-        if selected_responsible_services: filtered_df = filtered_df[filtered_df["Відповідальні служби"].isin(selected_responsible_services)]
+        if selected_equipment: filtered_df = filtered_df[filtered_df["Обладнання"].isin(selected_equipment)]
         if filter_anomalies: filtered_df = filtered_df[filtered_df['Підозріле повторення'] == True]
         filtered_df = filtered_df[(filtered_df["Дата створення (для фільтра)"] >= start_date) & (filtered_df["Дата створення (для фільтра)"] <= end_date)]
 
@@ -198,16 +216,35 @@ if df is not None and not df.empty:
             st.warning("⚠️ Після застосування вибраних фільтрів даних не знайдено.")
             st.stop()
         
+        # --- Створення унікального датафрейму для коректних розрахунків ---
+        unique_tasks_df = filtered_df.drop_duplicates(subset=['Ідентифікатор']).copy()
+
         # --- Пошук по заявках ---
         search_query = st.text_input("🔍 Пошук по заявках (введіть ідентифікатор або опис робіт)", "")
         if search_query:
+            unique_tasks_df = unique_tasks_df[
+                unique_tasks_df['Ідентифікатор'].astype(str).str.contains(search_query, case=False, na=False) |
+                unique_tasks_df['Опис робіт'].astype(str).str.contains(search_query, case=False, na=False)
+            ]
+            if unique_tasks_df.empty:
+                st.info("ℹ️ За вашим запитом нічого не знайдено.")
             filtered_df = filtered_df[
                 filtered_df['Ідентифікатор'].astype(str).str.contains(search_query, case=False, na=False) |
                 filtered_df['Опис робіт'].astype(str).str.contains(search_query, case=False, na=False)
             ]
-            if filtered_df.empty:
-                st.info("ℹ️ За вашим запитом нічого не знайдено.")
+
+        # --- Обробка стовпця "Відповідальні служби" для відображення ---
+        if "Відповідальні служби" in filtered_df.columns:
+            filtered_df["Відповідальні служби"] = filtered_df["Відповідальні служби"].fillna("")
+            filtered_df["Відповідальні служби"] = filtered_df["Відповідальні служби"].apply(
+                lambda x: [s.strip() for s in str(x).split(',') if s.strip()] if pd.notna(x) else ["Не вказано"]
+            )
+            filtered_df = filtered_df.explode("Відповідальні служби")
+            st.info("ℹ️ Стовпець 'Відповідальні служби' було оброблено для розділення.")
         
+        # --- Фільтрування після Explode ---
+        if selected_responsible_services: filtered_df = filtered_df[filtered_df["Відповідальні служби"].isin(selected_responsible_services)]
+
         # --- Створення нового стовпця з візуальними позначками ---
         def get_visual_status(row):
             statuses = []
@@ -286,9 +323,34 @@ if df is not None and not df.empty:
 
         st.markdown("---")
 
-        # --- Статистика (використовуємо відредагований датафрейм) ---
+        # --- Новий розділ: Календар заявок ---
+        st.subheader("🗓️ Календар заявок")
+        st.markdown("Цей графік показує кількість унікальних заявок за кожен день.")
+        
+        if "Дата створення (для фільтра)" in unique_tasks_df.columns:
+            calendar_data = unique_tasks_df.groupby("Дата створення (для фільтра)").size().reset_index(name='Кількість заявок')
+            
+            if not calendar_data.empty:
+                fig_calendar = px.bar(
+                    calendar_data,
+                    x="Дата створення (для фільтра)",
+                    y="Кількість заявок",
+                    title="Кількість заявок за датою",
+                    labels={"Дата створення (для фільтра)": "Дата", "Кількість заявок": "Кількість"},
+                    color_discrete_sequence=["#1f77b4"]
+                )
+                fig_calendar.update_layout(xaxis_title="Дата створення", yaxis_title="Кількість заявок")
+                fig_calendar.update_traces(marker_line_width=1.5, marker_line_color='rgb(8,48,107)')
+                st.plotly_chart(fig_calendar, use_container_width=True)
+            else:
+                st.info("Немає даних для побудови календаря за обраний період.")
+        else:
+            st.info("Відсутній стовпець 'Дата створення' для побудови календаря.")
+        
+        st.markdown("---")
+
+        # --- Статистика (використовуємо унікальний датафрейм) ---
         st.subheader("📊 Аналіз даних")
-        unique_tasks_df = editable_df.drop_duplicates(subset=['Ідентифікатор'])
         
         col_avg1, col_avg2 = st.columns(2)
         avg_виконання = unique_tasks_df['Час до виконання (хв)'].dropna().mean()
@@ -309,9 +371,9 @@ if df is not None and not df.empty:
         st.markdown("---")
 
         st.subheader("⚙️ Аналіз часу на машину")
-        if "Обладнання" in editable_df.columns and not editable_df["Обладнання"].empty:
+        if "Обладнання" in unique_tasks_df.columns and not unique_tasks_df["Обладнання"].empty:
             st.markdown("##### Середній час до закриття по обладнанню")
-            if not editable_df["Час до закриття (хв)"].dropna().empty:
+            if not unique_tasks_df["Час до закриття (хв)"].dropna().empty:
                 agg_avg_closure = unique_tasks_df.groupby("Обладнання")["Час до закриття (хв)"].mean().sort_values(ascending=False)
                 fig_avg_closure = px.bar(agg_avg_closure, x=agg_avg_closure.index, y=agg_avg_closure.values, labels={'x':'Обладнання', 'y':'Середній час до закриття (хв)'}, title='Середній час до закриття по обладнанню', height=400)
                 st.plotly_chart(fig_avg_closure, use_container_width=True)
@@ -319,7 +381,7 @@ if df is not None and not df.empty:
                 st.info("Немає даних для побудови графіка середнього часу до закриття по обладнанню.")
             
             st.markdown("##### Загальний час до виконання по обладнанню")
-            if not editable_df["Час до виконання (хв)"].dropna().empty:
+            if not unique_tasks_df["Час до виконання (хв)"].dropna().empty:
                 agg_total_execution = unique_tasks_df.groupby("Обладнання")["Час до виконання (хв)"].sum().sort_values(ascending=False)
                 fig_total_execution = px.bar(agg_total_execution, x=agg_total_execution.index, y=agg_total_execution.values, labels={'x':'Обладнання', 'y':'Загальний час до виконання (хв)'}, title='Загальний час до виконання по обладнанню', height=400)
                 st.plotly_chart(fig_total_execution, use_container_width=True)
