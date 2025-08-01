@@ -313,4 +313,24 @@ if df is not None and not df.empty:
             st.markdown("##### Середній час до закриття по обладнанню")
             if not editable_df["Час до закриття (хв)"].dropna().empty:
                 agg_avg_closure = unique_tasks_df.groupby("Обладнання")["Час до закриття (хв)"].mean().sort_values(ascending=False)
-                fig_avg_closure = px.bar(agg_avg_closure, x=agg_avg_closure
+                fig_avg_closure = px.bar(agg_avg_closure, x=agg_avg_closure.index, y=agg_avg_closure.values, labels={'x':'Обладнання', 'y':'Середній час до закриття (хв)'}, title='Середній час до закриття по обладнанню', height=400)
+                st.plotly_chart(fig_avg_closure, use_container_width=True)
+            else:
+                st.info("Немає даних для побудови графіка середнього часу до закриття по обладнанню.")
+            
+            st.markdown("##### Загальний час до виконання по обладнанню")
+            if not editable_df["Час до виконання (хв)"].dropna().empty:
+                agg_total_execution = unique_tasks_df.groupby("Обладнання")["Час до виконання (хв)"].sum().sort_values(ascending=False)
+                fig_total_execution = px.bar(agg_total_execution, x=agg_total_execution.index, y=agg_total_execution.values, labels={'x':'Обладнання', 'y':'Загальний час до виконання (хв)'}, title='Загальний час до виконання по обладнанню', height=400)
+                st.plotly_chart(fig_total_execution, use_container_width=True)
+            else:
+                st.info("Немає даних для побудови графіка загального часу до виконання по обладнанню.")
+        else:
+            st.info("Немає достатньо даних (або стовпця 'Обладнання') для аналізу часу на машину.")
+        st.success("✅ Аналіз успішно завершено!")
+    except Exception as e:
+        st.error(f"❌ Виникла помилка під час обробки файлу: {e}")
+        st.info(f"Деталі помилки: {type(e).__name__}: {e}")
+        st.info("Будь ласка, перевірте ваш файл. Можливо, деякі стовпці відсутні або дані мають неочікуваний формат.")
+elif df is None:
+    st.info("⬆️ Будь ласка, завантажте CSV-файл, щоб розпочати аналіз.")
