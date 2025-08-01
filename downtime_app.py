@@ -4,12 +4,12 @@ import numpy as np
 import plotly.express as px
 from io import StringIO, BytesIO
 
-st.set_page_config(layout="wide", page_title="Аналіз заявок по обладнання", page_icon="⚙️")
+st.set_page_config(layout="wide", page_title="Аналіз заявок по обладнанню", page_icon="⚙️")
 
-st.title("⚙️ Аналіз заявок по обладнання")
+st.title("⚙️ Аналіз заявок по обладнанню")
 
 st.markdown("""
-    Завантажте ваш **CSV-файл** або **Excel-файл** з даними про заявки.
+    Завантажте ваш **CSV-файл** з даними про заявки.
     
     **Особливості:**
     * **Пошук**: Використовуйте поле пошуку, щоб швидко знайти заявки за ідентифікатором або описом робіт.
@@ -27,107 +27,110 @@ st.markdown("""
 # --- Вибір джерела даних (тільки завантаження файлу з комп'ютера) ---
 st.sidebar.header("Джерело даних")
 df = None
-uploaded_file = st.file_uploader("📂 Завантажте CSV або Excel файл", type=["csv", "xlsx"])
+uploaded_file = st.file_uploader("📂 Завантажте CSV-файл", type=["csv"])
 
 if uploaded_file:
     try:
         uploaded_file.seek(0)
+        try:
+            df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8')
+        except Exception:
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, sep=';', encoding='cp1251')
         
-        # Перевірка типу файлу за розширенням
-        if uploaded_file.name.endswith('.csv'):
+        if df.empty or len(df.columns) <= 2:
+            uploaded_file.seek(0)
             try:
-                df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8')
+                df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8')
             except Exception:
                 uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, sep=';', encoding='cp1251')
-            
-            if df.empty or len(df.columns) <= 2:
-                uploaded_file.seek(0)
-                try:
-                    df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8')
-                except Exception:
-                    uploaded_file.seek(0)
-                    df = pd.read_csv(uploaded_file, sep=',', encoding='cp1251')
-            
-            if df.empty or len(df.columns) <= 2:
-                uploaded_file.seek(0)
-                try:
-                    df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
-                except Exception:
-                    uploaded_file.seek(0)
-                    df = pd.read_csv(uploaded_file, encoding='cp1251')
-
-        elif uploaded_file.name.endswith('.xlsx'):
-            df = pd.read_excel(uploaded_file, engine='openpyxl')
+                df = pd.read_csv(uploaded_file, sep=',', encoding='cp1251')
         
+        if df.empty or len(df.columns) <= 2:
+            uploaded_file.seek(0)
+            try:
+                df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+            except Exception:
+                uploaded_file.seek(0)
+                df = pd.read_csv(uploaded_file, encoding='cp1251')
+
         st.success("✅ Файл успішно завантажено!")
     except Exception as e:
         st.error(f"❌ Виникла помилка під час завантаження файлу: {e}")
-        st.info("Будь ласка, перевірте, чи файл не пошкоджений та чи є у ньому дані. Також переконайтесь, що формат файлу коректний (CSV або XLSX).")
+        st.info("Будь ласка, перевірте, чи файл не пошкоджений та чи є у ньому дані.")
         df = None
 
 # --- Вся подальша логіка обробки даних тепер виконується тільки якщо df не порожній ---
 if df is not None and not df.empty:
     try:
-        # Перевірка наявності критично важливих стовпців
-        critical_cols = ["Дата створення", "Час створення"]
-        if not all(col in df.columns for col in critical_cols):
-            missing_cols = [col for col in critical_cols if col not in df.columns]
-            st.error(f"❌ У файлі відсутні критично важливі стовпці: {', '.join(missing_cols)}. Будь ласка, перевірте ваш файл.")
-            st.stop()
-
-        # Додавання відсутніх стовпців з дефолтними значеннями
-        missing_cols_to_add = {
-            "Звіт про виконану роботу": "",
-            "Реакція на заявки": "",
-            "Ідентифікатор": df.index + 1,
-            "Обладнання": "Не вказано",
-            "Опис робіт": "Без опису",
-            "Відповідальні служби": "Не вказано"
-        }
-        for col, default_val in missing_cols_to_add.items():
+        critical_date_time_cols = ["Дата створення", "Час створення"]
+        for col in critical_date_time_cols:
             if col not in df.columns:
-                df[col] = default_val
-                st.info(f"ℹ️ Стовпець '{col}' відсутній у файлі і був доданий.")
-        
-        # --- Нова, надійна обробка дат та часу ---
-        st.info("⚙️ Обробка стовпців з датами та часом...")
-        
-        def convert_to_datetime_robust(date_col, time_col):
-            # Перетворюємо дату в datetime
-            dates = pd.to_datetime(date_col, errors='coerce', dayfirst=True)
-            
-            times = pd.Series(pd.NaT, index=df.index, dtype='timedelta64[ns]')
+                st.error(f"❌ У файлі відсутній критично важливий стовпець: '{col}'. Будь ласка, перевірте ваш файл.")
+                st.stop()
 
-            # Спроба 1: Обробка числових значень (Excel)
-            is_numeric = pd.to_numeric(time_col, errors='coerce').notna()
-            if is_numeric.any():
-                numeric_times = pd.to_timedelta(time_col[is_numeric], unit='D', errors='coerce')
-                times.loc[is_numeric] = numeric_times
-            
-            # Спроба 2: Обробка повних datetime-об'єктів (спричиняло попередню помилку)
-            is_datetime = pd.api.types.is_datetime64_any_dtype(time_col)
-            if is_datetime:
-                datetime_times = pd.to_timedelta(time_col.dt.time.astype(str), errors='coerce')
-                times.loc[~is_numeric] = datetime_times.loc[~is_numeric]
-                
-            # Спроба 3: Обробка текстових значень (CSV)
-            is_string_like = pd.api.types.is_string_dtype(time_col)
-            if is_string_like:
-                string_times = pd.to_timedelta(time_col, errors='coerce')
-                times.loc[times.isnull()] = string_times.loc[times.isnull()]
-
-            # Об'єднуємо дату і час
-            combined_datetime = dates + times
-            
-            return combined_datetime
+        if "Звіт про виконану роботу" not in df.columns:
+            df["Звіт про виконану роботу"] = ""
+            st.info("ℹ️ Стовпець 'Звіт про виконану роботу' відсутній у файлі і був доданий як порожній.")
+        if "Реакція на заявки" not in df.columns:
+            df["Реакція на заявки"] = ""
+            st.info("ℹ️ Додано новий стовпець 'Реакція на заявки' для коментарів.")
+        if "Ідентифікатор" not in df.columns:
+            df["Ідентифікатор"] = df.index + 1
+            st.info("ℹ️ Стовпець 'Ідентифікатор' відсутній у файлі і був доданий.")
+        if "Обладнання" not in df.columns:
+            df["Обладнання"] = "Не вказано"
+            st.info("ℹ️ Стовпець 'Обладнання' відсутній у файлі і був доданий зі значенням 'Не вказано'.")
+        if "Опис робіт" not in df.columns:
+            df["Опис робіт"] = "Без опису"
+            st.info("ℹ️ Стовпець 'Опис робіт' відсутній у файлі і був доданий зі значенням 'Без опису'.")
+        if "Відповідальні служби" not in df.columns:
+            df["Відповідальні служби"] = "Не вказано"
+            st.info("ℹ️ Стовпець 'Відповідальні служби' відсутній у файлі і був доданий зі значенням 'Не вказано'.")
         
-        # Застосовуємо нову функцію до всіх необхідних стовпців
-        df['Час створення (datetime)'] = convert_to_datetime_robust(df['Дата створення'], df['Час створення'])
-        df['Час виконання (datetime)'] = convert_to_datetime_robust(df['Дата виконання'], df['Час виконання']) if 'Дата виконання' in df.columns and 'Час виконання' in df.columns else pd.NaT
-        df['Час закриття (datetime)'] = convert_to_datetime_robust(df['Дата закриття'], df['Час закриття']) if 'Дата закриття' in df.columns and 'Час закриття' in df.columns else pd.NaT
+        date_formats = ["%Y-%m-%d", "%d.%m.%Y", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"]
+        time_formats = ["%H:%M:%S", "%H:%M"]
+        combined_datetime_formats = [f"{d_fmt} {t_fmt}" for d_fmt in date_formats for t_fmt in time_formats]
+        combined_datetime_formats = [
+            "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%d.%m.%Y %H:%M:%S",
+            "%d.%m.%Y %H:%M", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M",
+            "%Y-%m-%dT%H:%M:%S"
+        ] + combined_datetime_formats
+        combined_datetime_formats.extend(date_formats)
+        combined_datetime_formats = list(dict.fromkeys(combined_datetime_formats))
 
-        # Видалення рядків з некоректними датами створення
+        def combine_and_convert_datetime(row, date_col_name, time_col_name=None):
+            date_val = row.get(date_col_name)
+            time_val = row.get(time_col_name) if time_col_name else None
+            if pd.isna(date_val) and (time_col_name is None or pd.isna(time_val)):
+                return np.nan
+            try:
+                if pd.api.types.is_numeric_dtype(type(date_val)) and pd.notna(date_val):
+                    base_date = pd.to_datetime('1899-12-30')
+                    converted_date = base_date + pd.to_timedelta(date_val, unit='D')
+                    if pd.notna(converted_date):
+                        if time_col_name and pd.api.types.is_numeric_dtype(type(time_val)) and pd.notna(time_val):
+                            converted_time = pd.to_timedelta(time_val, unit='D')
+                            return converted_date + converted_time
+                        return converted_date
+            except Exception:
+                pass
+            date_str = str(date_val).strip() if pd.notna(date_val) else ""
+            time_str = str(time_val).strip() if pd.notna(time_val) else ""
+            combined_str = f"{date_str} {time_str}" if date_str and time_str else date_str or time_str
+            if not combined_str:
+                return np.nan
+            for fmt in combined_datetime_formats:
+                try:
+                    return pd.to_datetime(combined_str, format=fmt)
+                except (ValueError, TypeError):
+                    continue
+            try:
+                return pd.to_datetime(combined_str, infer_datetime_format=True, errors='coerce')
+            except (ValueError, TypeError):
+                return np.nan
+
+        df['Час створення (datetime)'] = df.apply(lambda row: combine_and_convert_datetime(row, 'Дата створення', 'Час створення'), axis=1)
         initial_rows = len(df)
         df.dropna(subset=["Час створення (datetime)"], inplace=True)
         if len(df) < initial_rows:
@@ -157,11 +160,12 @@ if df is not None and not df.empty:
         else:
             st.warning("⚠️ Неможливо виконати аналіз аномалій.")
             df['Підозріле повторення'] = False
-        
-        # Розрахунок різниці в часі
+
+        df['Час виконання (datetime)'] = df.apply(lambda row: combine_and_convert_datetime(row, 'Дата виконання', 'Час виконання'), axis=1)
+        df['Час закриття (datetime)'] = df.apply(lambda row: combine_and_convert_datetime(row, 'Дата закриття', 'Час закриття'), axis=1)
+        df["Дата створення (для фільтра)"] = df["Час створення (datetime)"].dt.date
         df["Час до виконання (хв)"] = (df["Час виконання (datetime)"] - df["Час створення (datetime)"]).dt.total_seconds() / 60
         df["Час до закриття (хв)"] = (df["Час закриття (datetime)"] - df["Час створення (datetime)"]).dt.total_seconds() / 60
-        df["Дата створення (для фільтра)"] = df["Час створення (datetime)"].dt.date
 
         if "Відповідальні служби" in df.columns:
             df["Відповідальні служби"] = df["Відповідальні служби"].fillna("")
@@ -329,4 +333,4 @@ if df is not None and not df.empty:
         st.info(f"Деталі помилки: {type(e).__name__}: {e}")
         st.info("Будь ласка, перевірте ваш файл. Можливо, деякі стовпці відсутні або дані мають неочікуваний формат.")
 elif df is None:
-    st.info("⬆️ Будь ласка, завантажте CSV або Excel файл, щоб розпочати аналіз.")
+    st.info("⬆️ Будь ласка, завантажте CSV-файл, щоб розпочати аналіз.")
